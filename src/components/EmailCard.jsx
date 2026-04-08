@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { CATEGORIES, CATEGORY_NAMES } from '../lib/categories'
 import { generateDraft, generateVoiceDraft } from '../lib/draft'
 import { buildStyleContext } from '../lib/styleContext'
@@ -10,7 +10,31 @@ const SpeechRecognition = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
   : null
 
-export default function EmailCard({ email, style, onCategoryChange, allEmails, mode, onDelete, onToggleRead, onDismiss, onMarkRead }) {
+function ThreadMessage({ msg, defaultExpanded }) {
+  const [msgExpanded, setMsgExpanded] = useState(defaultExpanded)
+  return (
+    <div className={`thread-message${msg.isSent ? ' thread-sent' : ''}${msgExpanded ? ' thread-expanded' : ' thread-collapsed'}`}>
+      <div className="thread-msg-header" onClick={(e) => { e.stopPropagation(); setMsgExpanded(!msgExpanded) }}>
+        <span className="thread-msg-from">{msg.isSent ? 'Minä' : msg.from}</span>
+        {!msgExpanded && (
+          <span className="thread-msg-snippet">{msg.body?.text?.substring(0, 80) || '...'}</span>
+        )}
+        <span className="thread-msg-date">{msg.date}</span>
+      </div>
+      {msgExpanded && (
+        <div className="thread-msg-body">
+          {msg.body?.html ? (
+            <div className="email-body-html" dangerouslySetInnerHTML={{ __html: msg.body.html }} />
+          ) : msg.body?.text ? (
+            <div className="email-body-text">{msg.body.text}</div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function EmailCard({ email, style, onCategoryChange, allEmails, mode, onDelete, onToggleRead, onDismiss, onMarkRead, onResort }) {
   const cat = CATEGORIES[email.category] || { color: 'var(--border)', bg: 'var(--bg-secondary)', text: 'var(--text-tertiary)', order: 99 }
   const [showMenu, setShowMenu] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -36,6 +60,18 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
   const [threadMessages, setThreadMessages] = useState(null)
   const [loadingThread, setLoadingThread] = useState(false)
   const recognitionRef = useRef(null)
+  const moveRef = useRef(null)
+
+  useEffect(() => {
+    if (!showMenu) return
+    function handleClickOutside(e) {
+      if (moveRef.current && !moveRef.current.contains(e.target)) {
+        setShowMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showMenu])
 
   function handleMove(newCategory) {
     setShowMenu(false)
@@ -48,6 +84,9 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
     if (e.target.closest('.move-wrapper') || e.target.closest('.draft-section') || e.target.closest('.calendar-section') || e.target.closest('.email-hover-actions')) return
     const willExpand = !expanded
     setExpanded(willExpand)
+    if (!willExpand) {
+      onResort()
+    }
     if (willExpand) {
       // Avaaminen: merkitse luetuksi (pallo pois) mutta pidä kategoriassa
       if (email.labels.includes('UNREAD')) {
@@ -245,19 +284,11 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
             )}
             {threadMessages ? (
               threadMessages.map((msg, i) => (
-                <div key={msg.id} className={`thread-message${msg.isSent ? ' thread-sent' : ''}`}>
-                  <div className="thread-msg-header">
-                    <span className="thread-msg-from">{msg.isSent ? 'Minä' : msg.from}</span>
-                    <span className="thread-msg-date">{msg.date}</span>
-                  </div>
-                  <div className="thread-msg-body">
-                    {msg.body?.html ? (
-                      <div className="email-body-html" dangerouslySetInnerHTML={{ __html: msg.body.html }} />
-                    ) : msg.body?.text ? (
-                      <div className="email-body-text">{msg.body.text}</div>
-                    ) : null}
-                  </div>
-                </div>
+                <ThreadMessage
+                  key={msg.id}
+                  msg={msg}
+                  defaultExpanded={i === threadMessages.length - 1}
+                />
               ))
             ) : !loadingThread ? (
               <div className="email-snippet" style={{ whiteSpace: 'normal' }}>
@@ -484,17 +515,25 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
           {email.labels.includes('UNREAD') && (
             <span className="email-unread-dot" />
           )}
-          <div className="move-wrapper">
+          <div className="move-wrapper" ref={moveRef}>
             <button
               className="move-btn"
               onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu) }}
               title="Siirrä kategoriaan"
             >
-              Move ↓
+              Siirrä ↓
             </button>
+            {expanded && (
+              <button
+                className="move-btn"
+                onClick={(e) => { e.stopPropagation(); setExpanded(false); onResort() }}
+              >
+                Sulje ✕
+              </button>
+            )}
             {showMenu && (
               <div className="move-menu">
-                {CATEGORY_NAMES.filter(c => c !== email.category).map(c => {
+                {CATEGORY_NAMES.filter(c => c !== email.category && c !== 'Lähetetyt').map(c => {
                   const mc = CATEGORIES[c]
                   return (
                     <button
@@ -627,27 +666,51 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
           padding: 10px 12px;
           background: var(--bg-card);
         }
+        .thread-message.thread-collapsed {
+          cursor: pointer;
+          opacity: 0.7;
+        }
+        .thread-message.thread-collapsed:hover {
+          opacity: 1;
+          border-color: var(--border-hover);
+        }
         .thread-message.thread-sent {
           background: var(--cat-meeting-bg, #EBF4FF);
+        }
+        .thread-message.thread-sent.thread-expanded {
           border-color: var(--cat-meeting);
         }
         .thread-msg-header {
           display: flex;
-          justify-content: space-between;
           align-items: center;
-          margin-bottom: 6px;
+          gap: 8px;
+        }
+        .thread-expanded .thread-msg-header {
+          margin-bottom: 8px;
         }
         .thread-msg-from {
           font-size: 13px;
           font-weight: 600;
           color: var(--text-primary);
+          flex-shrink: 0;
         }
         .thread-sent .thread-msg-from {
           color: var(--cat-meeting);
         }
+        .thread-msg-snippet {
+          font-size: 12px;
+          color: var(--text-tertiary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          flex: 1;
+          min-width: 0;
+        }
         .thread-msg-date {
           font-size: 11px;
           color: var(--text-tertiary);
+          flex-shrink: 0;
+          margin-left: auto;
         }
         .thread-msg-body {
           font-size: 13px;

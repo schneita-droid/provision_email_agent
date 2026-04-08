@@ -218,17 +218,63 @@ export async function fetchEmails(maxResults = 10) {
   if (!listData.messages) return []
 
   // 2. Fetch each message's details
-  const emails = await Promise.all(
-    listData.messages.map(async (msg) => {
-      const resp = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      )
-      return resp.json()
-    })
-  )
+  // Fetch in batches of 5 to avoid 429 rate limiting
+  const emails = []
+  for (let i = 0; i < listData.messages.length; i += 5) {
+    const batch = listData.messages.slice(i, i + 5)
+    const results = await Promise.all(
+      batch.map(async (msg) => {
+        const resp = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        )
+        if (!resp.ok) return null
+        return resp.json()
+      })
+    )
+    emails.push(...results.filter(Boolean))
+  }
 
   // 3. Parse into our format
+  function decodeMimeHeader(str) {
+    if (!str) return str
+    // Decode =?UTF-8?B?...?= (base64)
+    str = str.replace(/=\?UTF-8\?B\?([^?]+)\?=/gi, (_, b64) => {
+      try { return decodeURIComponent(atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')) } catch { return b64 }
+    })
+    // Decode =?UTF-8?Q?...?= (quoted-printable)
+    str = str.replace(/=\?UTF-8\?Q\?([^?]+)\?=/gi, (_, qp) => {
+      try { return decodeURIComponent(qp.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (__, hex) => '%' + hex)) } catch { return qp }
+    })
+    // Fix mojibake: Latin-1 interpreted UTF-8 → correct characters
+    if (/\u00C3[\u0080-\u00BF]/.test(str)) {
+      let fixed = str
+      // Replace Ã + next char with correct UTF-8 decoded character
+      fixed = fixed.replace(/\u00C3([\u0080-\u00BF])/g, (_, second) => {
+        try {
+          const bytes = new Uint8Array([0xC3, second.charCodeAt(0)])
+          return new TextDecoder('utf-8').decode(bytes)
+        } catch { return _ }
+      })
+      // Also handle Ã followed by chars like À (U+00C0) which is 0xC0
+      fixed = fixed.replace(/\u00C3[\u00C0-\u00FF]\u00C2([\u0080-\u00BF])/g, (_, second) => {
+        try {
+          const bytes = new Uint8Array([0xC3, second.charCodeAt(0)])
+          return new TextDecoder('utf-8').decode(bytes)
+        } catch { return _ }
+      })
+      if (fixed !== str) return fixed
+    }
+    return str
+  }
+
+  function decodeHtmlEntities(str) {
+    if (!str) return str
+    const el = typeof document !== 'undefined' ? document.createElement('textarea') : null
+    if (el) { el.innerHTML = str; return el.value }
+    return str.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16))).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  }
+
   const parsed = emails.map((msg) => {
     const headers = {}
     msg.payload.headers.forEach((h) => {
@@ -256,8 +302,8 @@ export async function fetchEmails(maxResults = 10) {
       threadId: msg.threadId,
       from: fromName,
       email: fromEmail,
-      subject: headers.Subject || '(ei otsikkoa)',
-      snippet: msg.snippet || '',
+      subject: decodeMimeHeader(headers.Subject) || '(ei otsikkoa)',
+      snippet: decodeHtmlEntities(msg.snippet) || '',
       date: dateStr,
       timestamp: parseInt(msg.internalDate),
       direction: isSent ? 'out' : 'in',
@@ -268,27 +314,33 @@ export async function fetchEmails(maxResults = 10) {
 
   // 4. Fetch user's recent sent messages to compare timestamps
   const sentResp = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&labelIds=SENT`,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&labelIds=SENT`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
   const sentData = await sentResp.json()
   const sentMessages = sentData.messages || []
 
-  // Fetch details of sent messages to get threadId + timestamp
-  const sentDetails = await Promise.all(
-    sentMessages.map(async (msg) => {
-      try {
-        const resp = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        )
-        const data = await resp.json()
-        return { threadId: data.threadId, timestamp: parseInt(data.internalDate) }
-      } catch {
-        return null
-      }
-    })
-  )
+  // Fetch details of sent messages in batches to avoid 429
+  const sentDetails = []
+  for (let i = 0; i < sentMessages.length; i += 5) {
+    const batch = sentMessages.slice(i, i + 5)
+    const results = await Promise.all(
+      batch.map(async (msg) => {
+        try {
+          const resp = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=minimal`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          )
+          if (!resp.ok) return null
+          const data = await resp.json()
+          return { threadId: data.threadId, timestamp: parseInt(data.internalDate) }
+        } catch {
+          return null
+        }
+      })
+    )
+    sentDetails.push(...results)
+  }
 
   // Build map: threadId → newest sent timestamp
   const sentByThread = {}
@@ -321,6 +373,7 @@ export async function sendReply(email, body) {
   const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
 
   const rawMessage = [
+    `From: Anna Schneitz <anna@coccoagency.com>`,
     `To: ${email.email}`,
     `Subject: ${subject}`,
     `In-Reply-To: ${email.id}`,

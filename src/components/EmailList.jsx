@@ -1,27 +1,45 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { CATEGORIES } from '../lib/categories'
 import EmailCard from './EmailCard'
 
 export default function EmailList({ emails, filter, search, onCategoryChange, allEmails, mode, onDelete, onToggleRead, onDismiss, onMarkRead }) {
   const q = search?.toLowerCase().trim() || ''
+  const sortOrderRef = useRef(null)
 
   const filtered = emails
     .filter(e => {
-      if (filter === 'all') return true // Kaikki: näytä kaikki mukaan lukien vastatut
-      if (e.category === null) return false // Piilota vastatut muista näkymistä
+      if (filter === 'all') return true
+      if (e.category === null) return false
       return e.category === filter
     })
     .filter(e => !q || [e.from, e.subject, e.snippet].some(f => f?.toLowerCase().includes(q)))
 
-  const sorted = filter === 'all'
-    ? [...filtered].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)) // Aikajärjestys
+  // Sorttaa normaalisti
+  const freshSorted = filter === 'all'
+    ? [...filtered].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
     : [...filtered].sort((a, b) => {
-        // Unread ensin, sitten aikajärjestys
         const aUnread = a.labels.includes('UNREAD') ? 0 : 1
         const bUnread = b.labels.includes('UNREAD') ? 0 : 1
         if (aUnread !== bUnread) return aUnread - bUnread
         return (b.timestamp || 0) - (a.timestamp || 0)
       })
+
+  // Käytä tallennettua järjestystä jos samat emailit (estää hyppimisen)
+  const currentIds = new Set(filtered.map(e => e.id))
+  const savedIds = sortOrderRef.current
+  const idsMatch = savedIds && savedIds.length === currentIds.size && savedIds.every(id => currentIds.has(id))
+
+  function handleResort() {
+    sortOrderRef.current = null
+  }
+
+  let sorted
+  if (idsMatch) {
+    sorted = savedIds.map(id => filtered.find(e => e.id === id)).filter(Boolean)
+  } else {
+    sorted = freshSorted
+    sortOrderRef.current = freshSorted.map(e => e.id)
+  }
 
   if (sorted.length === 0) {
     return (
@@ -53,6 +71,7 @@ export default function EmailList({ emails, filter, search, onCategoryChange, al
           onToggleRead={onToggleRead}
           onDismiss={onDismiss}
           onMarkRead={onMarkRead}
+          onResort={handleResort}
         />
       ))}
       <style>{`
