@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/annaschneitz/.nvm/versions/**)",
+      "Bash(/usr/local/bin/npm install:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm run:*)"
+    ]
+  }
+}
