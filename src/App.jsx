@@ -5,20 +5,7 @@ import EmailList from './components/EmailList'
 import StyleSettings from './components/StyleSettings'
 import { categorizeEmails } from './lib/categorize'
 import { getDemoEmails, fetchEmails, initGoogleAuth, signIn, isAuthenticated, loadScheduledReplies, trashEmail, toggleReadStatus } from './lib/gmail'
-
-const CORRECTIONS_KEY = 'prioritized_corrections'
-
-function loadCorrections() {
-  try {
-    return JSON.parse(localStorage.getItem(CORRECTIONS_KEY) || '[]')
-  } catch {
-    return []
-  }
-}
-
-function saveCorrection(corrections) {
-  localStorage.setItem(CORRECTIONS_KEY, JSON.stringify(corrections))
-}
+import { loadUserData, saveUserData } from './lib/userStore'
 
 export default function App() {
   const [emails, setEmails] = useState([])
@@ -27,12 +14,16 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState('demo') // 'demo' | 'live'
   const [error, setError] = useState(null)
-  const [corrections, setCorrections] = useState(loadCorrections)
+  const [corrections, setCorrections] = useState([])
   const [showStyleSettings, setShowStyleSettings] = useState(false)
 
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
   useEffect(() => {
+    // Load corrections from user store (KV or localStorage)
+    loadUserData('prioritized_corrections').then(data => {
+      if (Array.isArray(data)) setCorrections(data)
+    })
     loadEmails()
     loadScheduledReplies()
   }, [])
@@ -60,11 +51,11 @@ export default function App() {
       })
 
       if (newEmails.length > 0) {
-        const categorizedNew = await categorizeEmails(newEmails, loadCorrections())
+        const categorizedNew = await categorizeEmails(newEmails, corrections)
         setEmails([...categorizedNew, ...existingWithCategories])
       } else if (!silent) {
         // Full categorization on manual refresh
-        const categorized = await categorizeEmails(raw, loadCorrections())
+        const categorized = await categorizeEmails(raw, corrections)
         setEmails(categorized)
       }
     } catch (err) {
@@ -122,7 +113,7 @@ export default function App() {
       }
     ]
     setCorrections(updated)
-    saveCorrection(updated)
+    saveUserData('prioritized_corrections', updated)
   }
 
   function handleDismiss(emailId) {

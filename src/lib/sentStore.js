@@ -1,13 +1,15 @@
+import { loadUserData, saveUserData } from './userStore'
+
 const SAMPLES_KEY = 'sent_samples'
 const COUNT_KEY = 'sent_count'
 const MAX_STORED = 50
 
 /**
- * Save a sent email sample to localStorage.
- * Stores subject, recipient, body (max 500 chars), and timestamp.
+ * Save a sent email sample. Stores per-user via Vercel KV (or localStorage fallback).
+ * Returns the new total sent count.
  */
-export function saveSentSample(email, body) {
-  const samples = getAllSentSamples()
+export async function saveSentSample(email, body) {
+  const samples = await getAllSentSamples()
   samples.push({
     subject: email.subject || '',
     recipient: `${email.from} <${email.email}>`,
@@ -20,11 +22,11 @@ export function saveSentSample(email, body) {
     samples.splice(0, samples.length - MAX_STORED)
   }
 
-  localStorage.setItem(SAMPLES_KEY, JSON.stringify(samples))
+  await saveUserData(SAMPLES_KEY, samples)
 
   // Increment total sent count
-  const count = getSentCount() + 1
-  localStorage.setItem(COUNT_KEY, String(count))
+  const count = (await getSentCount()) + 1
+  await saveUserData(COUNT_KEY, count)
 
   return count
 }
@@ -32,27 +34,25 @@ export function saveSentSample(email, body) {
 /**
  * Get the N most recent sent samples.
  */
-export function getSentSamples(count = 3) {
-  const samples = getAllSentSamples()
+export async function getSentSamples(count = 3) {
+  const samples = await getAllSentSamples()
   return samples.slice(-count)
 }
 
 /**
  * Get all stored sent samples.
  */
-export function getAllSentSamples() {
-  try {
-    return JSON.parse(localStorage.getItem(SAMPLES_KEY) || '[]')
-  } catch {
-    return []
-  }
+export async function getAllSentSamples() {
+  const data = await loadUserData(SAMPLES_KEY)
+  return Array.isArray(data) ? data : []
 }
 
 /**
  * Get total number of messages sent (lifetime counter).
  */
-export function getSentCount() {
-  return parseInt(localStorage.getItem(COUNT_KEY) || '0', 10)
+export async function getSentCount() {
+  const count = await loadUserData(COUNT_KEY)
+  return typeof count === 'number' ? count : 0
 }
 
 /**

@@ -15,6 +15,8 @@ const SCOPES = 'https://www.googleapis.com/auth/gmail.modify https://www.googlea
 
 let tokenClient = null
 let accessToken = null
+let userEmail = null
+let userName = null
 
 export function isAuthenticated() {
   return !!accessToken
@@ -22,6 +24,14 @@ export function isAuthenticated() {
 
 export function getAccessToken() {
   return accessToken
+}
+
+export function getUserEmail() {
+  return userEmail
+}
+
+export function getUserName() {
+  return userName
 }
 
 /**
@@ -56,12 +66,27 @@ export function signIn() {
       reject(new Error('Google Auth not initialized'))
       return
     }
-    tokenClient.callback = (response) => {
+    tokenClient.callback = async (response) => {
       if (response.error) {
         reject(new Error(response.error))
         return
       }
       accessToken = response.access_token
+
+      // Fetch user profile (email + name) for per-user storage and From header
+      try {
+        const profile = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+        if (profile.ok) {
+          const data = await profile.json()
+          userEmail = data.email || null
+          userName = data.name || null
+        }
+      } catch {
+        // Non-critical — userEmail stays null, localStorage fallback kicks in
+      }
+
       resolve(response.access_token)
     }
     tokenClient.requestAccessToken()
@@ -373,7 +398,7 @@ export async function sendReply(email, body) {
   const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
 
   const rawMessage = [
-    `From: Anna Schneitz <anna@coccoagency.com>`,
+    `From: ${userName || ''} <${userEmail || ''}>`,
     `To: ${email.email}`,
     `Subject: ${subject}`,
     `In-Reply-To: ${email.id}`,

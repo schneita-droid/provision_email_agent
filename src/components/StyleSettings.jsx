@@ -2,13 +2,25 @@ import React, { useState } from 'react'
 import { getStyleDocument, saveStyleDocument } from '../lib/styleContext'
 
 export default function StyleSettings({ open, onClose }) {
-  const [text, setText] = useState(() => getStyleDocument())
+  const [text, setText] = useState('')
   const [saved, setSaved] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  // Load style document async when modal opens
+  React.useEffect(() => {
+    if (open && !loaded) {
+      getStyleDocument().then(doc => {
+        setText(doc)
+        setLoaded(true)
+      })
+    }
+    if (!open) setLoaded(false)
+  }, [open])
 
   if (!open) return null
 
-  function handleSave() {
-    saveStyleDocument(text)
+  async function handleSave() {
+    await saveStyleDocument(text)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }

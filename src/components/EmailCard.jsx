@@ -222,9 +222,9 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
       setSent(true)
 
       // Save sent message for AI learning
-      const newCount = saveSentSample(email, draft)
+      const newCount = await saveSentSample(email, draft)
 
-      // Every 10th message: update style guide in background
+      // Every 10th message: update style guide in background (don't await)
       if (shouldUpdateStyleGuide(newCount)) {
         updateStyleGuideInBackground()
       }
@@ -237,8 +237,8 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
 
   async function updateStyleGuideInBackground() {
     try {
-      const currentGuide = getStyleDocument() || getAutoStyleGuide()
-      const recentMessages = getSentSamples(10)
+      const currentGuide = (await getStyleDocument()) || (await getAutoStyleGuide())
+      const recentMessages = await getSentSamples(10)
       if (recentMessages.length === 0) return
 
       const resp = await fetch('/api/update-style', {
@@ -250,7 +250,7 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
       if (resp.ok) {
         const data = await resp.json()
         if (data.styleGuide) {
-          saveAutoStyleGuide(data.styleGuide)
+          await saveAutoStyleGuide(data.styleGuide)
         }
       }
     } catch {

@@ -37,6 +37,11 @@ cp .env.example .env
 # Hanki: https://console.anthropic.com
 ANTHROPIC_API_KEY=sk-ant-...
 
+# Valinnainen — käyttäjäkohtainen tallennus (ilman tätä käyttää localStoragea)
+# Luo: Vercel Dashboard → Storage → Create → KV
+KV_REST_API_URL=https://xxx.kv.vercel-storage.com
+KV_REST_API_TOKEN=xxx
+
 # Valinnainen — Gmail-integraatio (ilman tätä toimii demo-datalla)
 # Katso "Google Cloud setup" alla
 VITE_GOOGLE_CLIENT_ID=123456789-xxx.apps.googleusercontent.com
@@ -84,7 +89,8 @@ email-dashboard/
 │   ├── categorize.js            # AI-kategorisointi
 │   ├── draft.js                 # Vastausluonnos
 │   ├── voice-draft.js           # Ääniluonnos
-│   └── update-style.js          # Tyyliohjeen automaattipäivitys
+│   ├── update-style.js          # Tyyliohjeen automaattipäivitys
+│   └── user-data.js             # Per-user KV storage
 ├── src/
 │   ├── App.jsx                  # Pääkomponentti
 │   ├── main.jsx                 # Entry point
@@ -102,7 +108,8 @@ email-dashboard/
 │   │   ├── categories.js        # Kategorioiden konfiguraatio
 │   │   ├── draft.js             # Draft-generointi (client → /api/draft)
 │   │   ├── styleContext.js      # Tyyliohjeen kokoaminen promptille
-│   │   └── sentStore.js         # Lähetettyjen viestien tallennus + oppiminen
+│   │   ├── sentStore.js         # Lähetettyjen viestien tallennus + oppiminen
+│   │   └── userStore.js         # Storage wrapper (KV / localStorage)
 │   └── styles/
 │       └── global.css           # Tyylit + dark mode
 ├── public/                      # PWA-tiedostot (manifest, icons, service worker)
@@ -121,9 +128,18 @@ Selain → /api/categorize → Anthropic API
 Selain → /api/draft → Anthropic API
 Selain → /api/voice-draft → Anthropic API
 Selain → /api/update-style → Anthropic API
+Selain → /api/user-data → Vercel KV (per-user storage)
 ```
 
 Gmail- ja Calendar-kutsut menevät suoraan selaimesta Google API:in OAuth-tokenilla.
+
+### Käyttäjäkohtainen tallennus
+
+Jokaisen käyttäjän data tallennetaan erikseen Google-tilin perusteella:
+- **Vercel KV** (tuotanto) — data synkronoituu laitteiden välillä
+- **localStorage** (fallback) — kun KV ei ole konfiguroitu
+
+Tallennetaan per käyttäjä: lähetetyt viestit, tyyliohje, opittu tyyli, kategoriakorjaukset.
 
 ### AI-oppiminen
 
@@ -132,7 +148,7 @@ Dashboard oppii kirjoitustyylistäsi kahdella tasolla:
 1. **Tuoreet esimerkit** — 3 viimeisintä lähettämääsi viestiä sisällytetään aina draft-promptiin
 2. **Pysyvä tyyliopas** — joka 10. viestin jälkeen AI analysoi viestejäsi ja päivittää kompaktin tyyliohjeen automaattisesti
 
-Data tallennetaan selaimen localStorageen → jokaisen käyttäjän tyyli on täysin erillinen.
+Jokaisen käyttäjän tyyli on täysin erillinen (data tallennetaan per Google-tili).
 
 ## Tech stack
 

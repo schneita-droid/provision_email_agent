@@ -1,28 +1,31 @@
+import { loadUserData, saveUserData } from './userStore'
 import { getSentSamples } from './sentStore'
 
 const STYLE_KEY = 'email_writing_style'
 const AUTO_STYLE_KEY = 'email_auto_style_guide'
 
-export function getStyleDocument() {
-  return localStorage.getItem(STYLE_KEY) || ''
+export async function getStyleDocument() {
+  const doc = await loadUserData(STYLE_KEY)
+  return typeof doc === 'string' ? doc : ''
 }
 
-export function saveStyleDocument(text) {
-  localStorage.setItem(STYLE_KEY, text)
+export async function saveStyleDocument(text) {
+  await saveUserData(STYLE_KEY, text)
 }
 
 /**
  * Get the auto-generated style guide (updated every 10 sent messages).
  */
-export function getAutoStyleGuide() {
-  return localStorage.getItem(AUTO_STYLE_KEY) || ''
+export async function getAutoStyleGuide() {
+  const guide = await loadUserData(AUTO_STYLE_KEY)
+  return typeof guide === 'string' ? guide : ''
 }
 
 /**
  * Save the auto-generated style guide.
  */
-export function saveAutoStyleGuide(text) {
-  localStorage.setItem(AUTO_STYLE_KEY, text)
+export async function saveAutoStyleGuide(text) {
+  await saveUserData(AUTO_STYLE_KEY, text)
 }
 
 /**
@@ -30,10 +33,12 @@ export function saveAutoStyleGuide(text) {
  * Combines: manual style guide + auto-learned style guide + 3 recent sent examples.
  * Token-efficient: ~500 tokens total.
  */
-export function buildStyleContext() {
-  const manualGuide = getStyleDocument()
-  const autoGuide = getAutoStyleGuide()
-  const recentSamples = getSentSamples(3)
+export async function buildStyleContext() {
+  const [manualGuide, autoGuide, recentSamples] = await Promise.all([
+    getStyleDocument(),
+    getAutoStyleGuide(),
+    getSentSamples(3),
+  ])
 
   const parts = []
 
