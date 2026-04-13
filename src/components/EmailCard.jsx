@@ -34,7 +34,7 @@ function ThreadMessage({ msg, defaultExpanded }) {
   )
 }
 
-export default function EmailCard({ email, style, onCategoryChange, allEmails, mode, onDelete, onToggleRead, onDismiss, onMarkRead, onResort }) {
+export default function EmailCard({ email, style, onCategoryChange, allEmails, mode, onDelete, onToggleRead, onDismiss, onMarkRead, onResort, onExpand }) {
   const cat = CATEGORIES[email.category] || { color: 'var(--border)', bg: 'var(--bg-secondary)', text: 'var(--text-tertiary)', order: 99 }
   const [showMenu, setShowMenu] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -84,6 +84,7 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
     if (e.target.closest('.move-wrapper') || e.target.closest('.draft-section') || e.target.closest('.calendar-section') || e.target.closest('.email-hover-actions')) return
     const willExpand = !expanded
     setExpanded(willExpand)
+    onExpand(email.id, willExpand)
     if (!willExpand) {
       onResort()
     }
@@ -257,7 +258,16 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
           <div className="email-hover-actions">
             <button
               className="hover-action-pill"
-              onClick={(e) => { e.stopPropagation(); onToggleRead(email.id) }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleRead(email.id)
+                // Jos merkitään lukemattomaksi, sulje viesti
+                if (!email.labels.includes('UNREAD')) {
+                  setExpanded(false)
+                  onExpand(email.id, false)
+                  onResort()
+                }
+              }}
             >
               {email.labels.includes('UNREAD') ? 'Merkkaa luetuksi' : 'Merkkaa lukemattomaksi'}
             </button>
@@ -526,9 +536,17 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
             {expanded && (
               <button
                 className="move-btn"
-                onClick={(e) => { e.stopPropagation(); setExpanded(false); onResort() }}
+                onClick={(e) => { e.stopPropagation(); setExpanded(false); onExpand(email.id, false); onResort() }}
               >
                 Sulje ✕
+              </button>
+            )}
+            {expanded && (
+              <button
+                className="move-btn hover-delete"
+                onClick={(e) => { e.stopPropagation(); onDelete(email.id) }}
+              >
+                Poista
               </button>
             )}
             {showMenu && (

@@ -1,10 +1,11 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { CATEGORIES } from '../lib/categories'
 import EmailCard from './EmailCard'
 
 export default function EmailList({ emails, filter, search, onCategoryChange, allEmails, mode, onDelete, onToggleRead, onDismiss, onMarkRead }) {
   const q = search?.toLowerCase().trim() || ''
   const sortOrderRef = useRef(null)
+  const [expandedId, setExpandedId] = useState(null)
 
   const filtered = emails
     .filter(e => {
@@ -24,21 +25,28 @@ export default function EmailList({ emails, filter, search, onCategoryChange, al
         return (b.timestamp || 0) - (a.timestamp || 0)
       })
 
-  // Käytä tallennettua järjestystä jos samat emailit (estää hyppimisen)
-  const currentIds = new Set(filtered.map(e => e.id))
-  const savedIds = sortOrderRef.current
-  const idsMatch = savedIds && savedIds.length === currentIds.size && savedIds.every(id => currentIds.has(id))
+  // Tallenna UNREAD-tila jokaiselle — jos muuttuu, sorttaa uudelleen
+  const currentKey = filtered.map(e => e.id + (e.labels.includes('UNREAD') ? ':U' : ':R')).sort().join(',')
+  const savedKey = sortOrderRef.current?.key
 
   function handleResort() {
+    setExpandedId(null)
     sortOrderRef.current = null
   }
 
+  function handleExpand(emailId, isExpanded) {
+    setExpandedId(isExpanded ? emailId : null)
+  }
+
   let sorted
-  if (idsMatch) {
-    sorted = savedIds.map(id => filtered.find(e => e.id === id)).filter(Boolean)
+  if (expandedId && sortOrderRef.current?.ids) {
+    // Viesti auki — pidä vanha järjestys ehdottomasti
+    sorted = sortOrderRef.current.ids.map(id => filtered.find(e => e.id === id)).filter(Boolean)
+  } else if (savedKey === currentKey && sortOrderRef.current?.ids) {
+    sorted = sortOrderRef.current.ids.map(id => filtered.find(e => e.id === id)).filter(Boolean)
   } else {
     sorted = freshSorted
-    sortOrderRef.current = freshSorted.map(e => e.id)
+    sortOrderRef.current = { key: currentKey, ids: freshSorted.map(e => e.id) }
   }
 
   if (sorted.length === 0) {
@@ -72,6 +80,7 @@ export default function EmailList({ emails, filter, search, onCategoryChange, al
           onDismiss={onDismiss}
           onMarkRead={onMarkRead}
           onResort={handleResort}
+          onExpand={handleExpand}
         />
       ))}
       <style>{`
