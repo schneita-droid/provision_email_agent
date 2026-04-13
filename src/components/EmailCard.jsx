@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { CATEGORIES, CATEGORY_NAMES } from '../lib/categories'
 import { generateDraft, generateVoiceDraft } from '../lib/draft'
-import { buildStyleContext } from '../lib/styleContext'
+import { buildStyleContext, getStyleDocument, getAutoStyleGuide, saveAutoStyleGuide } from '../lib/styleContext'
+import { saveSentSample, getSentSamples, shouldUpdateStyleGuide } from '../lib/sentStore'
 import { sendReply, scheduleReply, fetchEmailBody, fetchThread } from '../lib/gmail'
 import { fetchFreeSlots, formatFreeSlotsText } from '../lib/calendar'
 import { buildCalendarContext } from '../lib/calendarContext'
@@ -112,7 +113,7 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
     setDraft('')
     try {
       const calCtx = freeSlots ? buildCalendarContext(freeSlots) : ''
-      const styleCtx = buildStyleContext(allEmails || [])
+      const styleCtx = buildStyleContext()
       const result = await generateDraft(email, calCtx, styleCtx)
       setDraft(result)
     } catch {
@@ -172,7 +173,7 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
       setDrafting(true)
       setDraft('')
       try {
-        const styleCtx = buildStyleContext(allEmails || [])
+        const styleCtx = buildStyleContext()
         const calCtx = freeSlots ? buildCalendarContext(freeSlots) : ''
         const result = await generateVoiceDraft(email, fullTranscript, styleCtx, calCtx)
         setDraft(result)
@@ -219,10 +220,41 @@ export default function EmailCard({ email, style, onCategoryChange, allEmails, m
     try {
       await sendReply(email, draft)
       setSent(true)
+
+      // Save sent message for AI learning
+      const newCount = saveSentSample(email, draft)
+
+      // Every 10th message: update style guide in background
+      if (shouldUpdateStyleGuide(newCount)) {
+        updateStyleGuideInBackground()
+      }
     } catch (err) {
       setSendError(err.message || 'Lähetys epäonnistui')
     } finally {
       setSending(false)
+    }
+  }
+
+  async function updateStyleGuideInBackground() {
+    try {
+      const currentGuide = getStyleDocument() || getAutoStyleGuide()
+      const recentMessages = getSentSamples(10)
+      if (recentMessages.length === 0) return
+
+      const resp = await fetch('/api/update-style', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentStyleGuide: currentGuide, recentMessages }),
+      })
+
+      if (resp.ok) {
+        const data = await resp.json()
+        if (data.styleGuide) {
+          saveAutoStyleGuide(data.styleGuide)
+        }
+      }
+    } catch {
+      // Silent fail — style update is non-critical
     }
   }
 
